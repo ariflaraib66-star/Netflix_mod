@@ -1,0 +1,9 @@
+{
+  "files": [
+    {
+      "file": "sample.mp4",
+      "title": "Sample Movie",
+      "thumbnail": "/thumbnails/sample.jpg"
+    }
+  ]
+}
