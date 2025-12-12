@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>MiniFlix — Demo</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>MiniFlix</h1>
+    <div id="auth">
+      <button id="show-login">Login / Register</button>
+      <button id="logout" style="display:none;">Logout</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="login-panel" class="panel hidden">
+      <h2>Login</h2>
+      <form id="login-form">
+        <input name="username" placeholder="username" required />
+        <input name="password" type="password" placeholder="password" required />
+        <button type="submit">Login</button>
+      </form>
+      <hr/>
+      <h2>Register</h2>
+      <form id="register-form">
+        <input name="username" placeholder="username" required />
+        <input name="password" type="password" placeholder="password" required />
+        <button type="submit">Register</button>
+      </form>
+    </section>
+
+    <section id="catalog" class="hidden">
+      <h2>Catalog</h2>
+      <div id="grid" class="grid"></div>
+    </section>
+  </main>
+
+  <!-- Player Modal -->
+  <div id="player-modal" class="modal hidden">
+    <div class="modal-content">
+      <button id="close-player" class="close">✕</button>
+      <h3 id="player-title"></h3>
+      <video id="player" controls preload="metadata" width="960" height="540"></video>
+    </div>
+  </div>
+
+  <script>
+    const el = (s) => document.querySelector(s);
+    const loginPanel = el('#login-panel');
+    const catalog = el('#catalog');
+    const grid = el('#grid');
+    const showLoginBtn = el('#show-login');
+    const logoutBtn = el('#logout');
+    const playerModal = el('#player-modal');
+    const player = el('#player');
+    const playerTitle = el('#player-title');
+
+    showLoginBtn.onclick = () => {
+      loginPanel.classList.toggle('hidden');
+    };
+
+    el('#login-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const form = new FormData(e.target);
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: form.get('username'),
+          password: form.get('password')
+        })
+      });
+      if (res.ok) await afterAuth();
+      else alert('Login failed');
+    };
+
+    el('#register-form').onsubmit = async (e) => {
+      e.preventDefault();
+      const form = new FormData(e.target);
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          username: form.get('username'),
+          password: form.get('password')
+        })
+      });
+      if (res.ok) {
+        alert('Registered! You can now login.');
+        e.target.reset();
+      } else {
+        alert('Register failed');
+      }
+    };
+
+    logoutBtn.onclick = async () => {
+      await fetch('/api/logout');
+      window.location.reload();
+    };
+
+    async function afterAuth(){
+      loginPanel.classList.add('hidden');
+      showLoginBtn.style.display = 'none';
+      logoutBtn.style.display = 'inline-block';
+      catalog.classList.remove('hidden');
+      await loadCatalog();
+    }
+
+    async function loadCatalog(){
+      grid.innerHTML = 'Loading...';
+      const res = await fetch('/api/videos');
+      if (!res.ok) {
+        grid.innerHTML = 'Failed to load catalog. Are you logged in?';
+        return;
+      }
+      const json = await res.json();
+      grid.innerHTML = '';
+      json.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <img src="${item.thumbnail || '/static/placeholder.png'}" alt="${item.title}" />
+          <div class="meta">
+            <h4>${item.title}</h4>
+            <button data-file="${item.file}">Play</button>
+          </div>
+        `;
+        grid.appendChild(card);
+        card.querySelector('button').onclick = () => openPlayer(item);
+      });
+    }
+
+    function openPlayer(item){
+      playerTitle.textContent = item.title;
+      // Use the server streaming endpoint; this supports range requests.
+      player.src = `/video/${encodeURIComponent(item.file)}`;
+      player.currentTime = item.resumeTime || 0;
+      playerModal.classList.remove('hidden');
+      player.play().catch(()=>{});
+      // periodically save watch time
+      if (window._watchInterval) clearInterval(window._watchInterval);
+      window._watchInterval = setInterval(async () => {
+        try {
+          await fetch('/api/watch', {
+            method: 'POST',
+            headers: {'content-type': 'application/json'},
+            body: JSON.stringify({ file: item.file, time: Math.floor(player.currentTime) })
+          });
+        } catch (e) {}
+      }, 5000);
+    }
+
+    el('#close-player').onclick = () => {
+      player.pause();
+      player.src = '';
+      playerModal.classList.add('hidden');
+      if (window._watchInterval) clearInterval(window._watchInterval);
+    };
+
+    // On page load check session
+    (async function init(){
+      const res = await fetch('/api/me');
+      if (res.ok) {
+        await afterAuth();
+      } else {
+        // show login panel
+        loginPanel.classList.remove('hidden');
+      }
+    })();
+  </script>
+</body>
+</html>
